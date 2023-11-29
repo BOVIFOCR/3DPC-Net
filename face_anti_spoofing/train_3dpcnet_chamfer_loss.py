@@ -239,10 +239,11 @@ def main(args):
 
             global_step += 1
             # loss: torch.Tensor = module_partial_fc(local_embeddings, local_labels)   # original
-            pred_pointcloud, pred_logits = backbone(img)
+            pred_pointcloud, pred_logits = backbone(img, true_pointcloud)
             reconst_loss = chamfer_loss(true_pointcloud, pred_pointcloud)              # Bernardo
-            class_loss, probabilities, pred_labels = module_partial_fc(pred_logits, local_labels)     # Bernardo
-            total_loss = reconst_loss + class_loss
+            # class_loss, probabilities, pred_labels = module_partial_fc(pred_logits, local_labels)     # Bernardo
+            # total_loss = reconst_loss + class_loss
+            total_loss = reconst_loss
 
             if cfg.fp16:
                 # amp.scale(loss_reconst).backward()
@@ -265,9 +266,10 @@ def main(args):
 
             lr_scheduler.step()
             reconst_loss_am.update(reconst_loss.item(), 1)
-            class_loss_am.update(class_loss.item(), 1)
+            # class_loss_am.update(class_loss.item(), 1)
             total_loss_am.update(total_loss.item(), 1)
 
+            pred_labels = None
             train_evaluator.update(pred_labels, local_labels)
 
             if (epoch % 10 == 0 or epoch == cfg.max_epoch-1) and batch_idx == 0:
@@ -329,7 +331,7 @@ def validate(chamfer_loss, module_partial_fc, backbone, val_loader, val_evaluato
         val_class_loss_am = AverageMeter()
         val_total_loss_am = AverageMeter()
         for val_batch_idx, (val_img, val_pointcloud, val_labels) in enumerate(val_loader):
-            val_pred_pointcloud, val_pred_logits = backbone(val_img)
+            val_pred_pointcloud, val_pred_logits = backbone(val_img, val_pointcloud)
             val_loss_reconst = chamfer_loss(val_pointcloud, val_pred_pointcloud)
             val_loss_class, val_probabilities, val_pred_labels = module_partial_fc(val_pred_logits, val_labels)
             val_total_loss = val_loss_reconst + val_loss_class
@@ -372,7 +374,10 @@ def validate(chamfer_loss, module_partial_fc, backbone, val_loader, val_evaluato
 
 def save_sample(path_dir_samples, img, true_pointcloud, local_labels, pred_pointcloud, pred_labels):
     for i in range(img.size(0)):
-        sample_dir = f'sample={i}_true-label={local_labels[i]}_pred-label={pred_labels[i]}'
+        if not pred_labels is None:
+            sample_dir = f'sample={i}_true-label={local_labels[i]}_pred-label={pred_labels[i]}'
+        else:
+            sample_dir = f'sample={i}_true-label={local_labels[i]}'
         path_sample = os.path.join(path_dir_samples, sample_dir)
         os.makedirs(path_sample, exist_ok=True)
 

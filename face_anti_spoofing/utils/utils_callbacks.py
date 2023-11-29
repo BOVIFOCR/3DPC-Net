@@ -217,10 +217,13 @@ class EvaluatorLogging(object):
 
 
     def update(self, pred_labels, true_labels):
-        assert pred_labels.size(0) == true_labels.size(0), 'Error: pred_labels.size(0) is different from true_labels.size(0). Sizes must be equal.'
-        self.all_pred_labels[self.curr_idx:self.curr_idx+pred_labels.size(0)] = pred_labels
-        self.all_true_labels[self.curr_idx:self.curr_idx+true_labels.size(0)] = true_labels
-        self.curr_idx += pred_labels.size(0)
+        if not pred_labels is None:
+            assert pred_labels.size(0) == true_labels.size(0), 'Error: pred_labels.size(0) is different from true_labels.size(0). Sizes must be equal.'
+            self.all_pred_labels[self.curr_idx:self.curr_idx+pred_labels.size(0)] = pred_labels
+            self.all_true_labels[self.curr_idx:self.curr_idx+true_labels.size(0)] = true_labels
+        else:
+            self.all_true_labels[self.curr_idx:self.curr_idx+true_labels.size(0)] = true_labels
+        self.curr_idx += true_labels.size(0)
         self.curr_batch += 1
 
 

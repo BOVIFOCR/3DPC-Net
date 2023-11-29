@@ -39,21 +39,31 @@ class _3DPCNet(nn.Module):
         self._initialize_weights()
 
 
-    def get_decoder_Conv1x1(self, input_shape=(1, 256), output_shape=(1, 3, 2500)):
+    def get_decoder_Conv1x1(self, input_shape=(1, 256+(2500*3)), output_shape=(1, 3, 2500)):
         layers = []
 
-        # layer 1
-        conv1_ksize = 129
-        pool1_ksize = 25
+        # layer 1 - 0
+        conv1_ksize = 258
+        pool1_ksize = 29
         layers.append(nn.Conv1d(in_channels=input_shape[0], out_channels=output_shape[2], kernel_size=conv1_ksize, stride=1, padding=0, bias=False))
         layers.append(nn.BatchNorm1d(output_shape[2], eps=1e-05))
         layers.append(nn.ReLU(True))
         layers.append(nn.MaxPool1d(pool1_ksize))
         # layers.append(nn.AvgPool1d(pool1_ksize))
 
+        # layer 1 - 1
+        conv2_ksize = 129
+        pool2_ksize = 23
+        layers.append(nn.Conv1d(in_channels=output_shape[2], out_channels=129, kernel_size=conv2_ksize, stride=1, padding=0, bias=False))
+        layers.append(nn.BatchNorm1d(129, eps=1e-05))
+        layers.append(nn.ReLU(True))
+        layers.append(nn.MaxPool1d(pool2_ksize))
+        # layers.append(nn.AvgPool1d(pool1_ksize))
+
+
         # layer 2
-        conv2_ksize = 3
-        layers.append(nn.Conv1d(in_channels=output_shape[2], out_channels=output_shape[2], kernel_size=conv2_ksize, stride=1, padding=0, bias=False))
+        conv3_ksize = 3
+        layers.append(nn.Conv1d(in_channels=129, out_channels=output_shape[2], kernel_size=conv3_ksize, stride=1, padding=0, bias=False))
         layers.append(nn.BatchNorm1d(output_shape[2], eps=1e-05))
         layers.append(nn.Tanh())
 
@@ -119,11 +129,25 @@ class _3DPCNet(nn.Module):
                     m.bias.data.zero_()
 
 
-    def forward(self, img):
-        def _regress_pointcloud(img):        # input     -> x.shape = (batch, 3, 224, 224)
-            embedd = self.encoder(img)       # encoder   -> x.shape = (batch, 256)
-            embedd = embedd.unsqueeze(1)     # unsqueeze -> x.shape = (batch, 1, 256)
-            pred_pc = self.decoder(embedd)   # decoder   -> x.shape = (batch, 2500, 3)
+    def forward(self, img, true_pc):
+        def _regress_pointcloud(img, true_pc):        # input     -> x.shape = (batch, 3, 224, 224)
+            embedd = self.encoder(img)                # encoder   -> x.shape = (batch, 256)
+            # print('embedd.size():', embedd.size())
+            # print('true_pc.size():', true_pc.size())
+            true_pc = true_pc.reshape(true_pc.size(0), true_pc.size(1)*true_pc.size(2))
+            # print('reshape - true_pc.size():', true_pc.size())
+
+            embedd = torch.nn.functional.normalize(embedd)
+            true_pc = torch.nn.functional.normalize(true_pc)
+            embedd_true_pc = torch.cat((embedd, true_pc), 1)
+            # print('embedd_true_pc.size():', embedd_true_pc.size())
+
+            embedd_true_pc = embedd_true_pc.unsqueeze(1)              # unsqueeze -> x.shape = (batch, 1, 7756)
+            # print('embedd_true_pc.size():', embedd_true_pc.size())
+
+            pred_pc = self.decoder(embedd_true_pc)            # decoder   -> x.shape = (batch, 2500, 3)
+            # print('pred_pc.size():', pred_pc.size())
+            # sys.exit(0)
             return pred_pc
 
         def _get_logits(x):
@@ -131,16 +155,16 @@ class _3DPCNet(nn.Module):
             logits = self.classifier(x)
             return logits
 
-        def _forward(img):
-            pred_pc = _regress_pointcloud(img)
+        def _forward(img, true_pc):
+            pred_pc = _regress_pointcloud(img, true_pc)
             logits = _get_logits(pred_pc)
             return pred_pc, logits
 
         if self.fp16:
             with torch.cuda.amp.autocast(self.fp16):
-                return _forward(img)
+                return _forward(img, true_pc)
         else:
-            return _forward(img)
+            return _forward(img, true_pc)
 
 
 

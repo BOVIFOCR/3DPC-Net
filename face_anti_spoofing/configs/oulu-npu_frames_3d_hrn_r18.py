@@ -26,10 +26,13 @@ config.weight_decay = 5e-4
 
 # config.batch_size = 128  # original
 # config.batch_size = 64   # Bernardo
-config.batch_size = 32     # Bernardo
-# config.batch_size = 16   # Bernardo
+# config.batch_size = 32     # Bernardo
+config.batch_size = 16   # Bernardo
+# config.batch_size = 8   # Bernardo
+# config.batch_size = 4   # Bernardo
 
-config.lr = 0.1
+# config.lr = 0.1
+config.lr = 0.01
 
 # config.verbose = 2000  # original for 5.1M images
 config.verbose = 100     # Bernardo
