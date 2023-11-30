@@ -145,7 +145,6 @@ class CallBackEpochLogging(object):
                  global_step: int,
                  reconst_loss: AverageMeter,
                  class_loss: AverageMeter,
-                 total_loss: AverageMeter,
                  train_evaluator,
                  epoch: int,
                  fp16: bool,
@@ -175,26 +174,24 @@ class CallBackEpochLogging(object):
             self.writer.add_scalar('learning_rate', learning_rate, epoch)
             self.writer.add_scalar('loss/train_reconst_loss', reconst_loss.avg, epoch)
             self.writer.add_scalar('loss/train_class_loss', class_loss.avg, epoch)
-            self.writer.add_scalar('loss/train_total_loss', total_loss.avg, epoch)
             self.writer.add_scalar('acc/train_acc', metrics['acc'], epoch)
             self.writer.add_scalar('apcer/train_apcer', metrics['apcer'], epoch)
             self.writer.add_scalar('bpcer/train_bpcer', metrics['bpcer'], epoch)
             self.writer.add_scalar('acer/train_acer', metrics['acer'], epoch)
         if fp16:
-            msg = " Epoch: %d   ReconstLoss %.4f   ClassLoss %.4f   TotalLoss %.4f    acc: %.4f%%    apcer: %.4f%%    bpcer: %.4f%%    acer: %.4f%%   LR %.6f   Global Step: %d   " \
+            msg = " Epoch: %d   ReconstLoss %.4f   ClassLoss %.4f   acc: %.4f%%    apcer: %.4f%%    bpcer: %.4f%%    acer: %.4f%%   LR %.6f   Global Step: %d   " \
                     "Fp16 Grad Scale: %2.f   Speed %.2f samples/sec   Required: %1.f hours" % (
-                        epoch, reconst_loss.avg, class_loss.avg, total_loss.avg, metrics['acc'], metrics['apcer'], metrics['bpcer'], metrics['acer'], learning_rate, global_step,
+                        epoch, reconst_loss.avg, class_loss.avg, metrics['acc'], metrics['apcer'], metrics['bpcer'], metrics['acer'], learning_rate, global_step,
                         grad_scaler.get_scale(), speed_total, time_for_end
                     )
         else:
-            msg = " Epoch: %d   ReconstLoss %.4f   ClassLoss %.4f   TotalLoss %.4f    acc: %.4f%%    apcer: %.4f%%    bpcer: %.4f%%    acer: %.4f%%   LR %.6f   Global Step: %d   Speed %.2f samples/sec   " \
+            msg = " Epoch: %d   ReconstLoss %.4f   ClassLoss %.4f   acc: %.4f%%    apcer: %.4f%%    bpcer: %.4f%%    acer: %.4f%%   LR %.6f   Global Step: %d   Speed %.2f samples/sec   " \
                     "Required: %1.f hours" % (
-                        epoch, reconst_loss.avg, class_loss.avg, total_loss.avg, metrics['acc'], metrics['apcer'], metrics['bpcer'], metrics['acer'], learning_rate, global_step, speed_total, time_for_end
+                        epoch, reconst_loss.avg, class_loss.avg, metrics['acc'], metrics['apcer'], metrics['bpcer'], metrics['acer'], learning_rate, global_step, speed_total, time_for_end
                     )
         logging.info(msg)
         reconst_loss.reset()
         class_loss.reset()
-        total_loss.reset()
 
         if self.init:
             self.tic = time.time()

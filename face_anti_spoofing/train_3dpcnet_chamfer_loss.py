@@ -155,6 +155,7 @@ def main(args):
 
     print(f'\nSetting optimizer...')
     if cfg.optimizer == "sgd":
+        '''
         module_partial_fc = PartialFC_V2(
             # margin_loss, cfg.embedding_size, cfg.num_classes,
             margin_loss,   2,                  cfg.num_classes,
@@ -164,8 +165,13 @@ def main(args):
         opt = torch.optim.SGD(
             params=[{"params": backbone.parameters()}, {"params": module_partial_fc.parameters()}],
             lr=cfg.lr, momentum=0.9, weight_decay=cfg.weight_decay)
+        '''
+        opt = torch.optim.SGD(
+            params=[{"params": backbone.parameters()}],
+            lr=cfg.lr, momentum=0.9, weight_decay=cfg.weight_decay)
 
     elif cfg.optimizer == "adamw":
+        '''
         module_partial_fc = PartialFC_V2(
             # margin_loss, cfg.embedding_size, cfg.num_classes,
             margin_loss,   2,                  cfg.num_classes,
@@ -173,6 +179,10 @@ def main(args):
         module_partial_fc.train().cuda()
         opt = torch.optim.AdamW(
             params=[{"params": backbone.parameters()}, {"params": module_partial_fc.parameters()}],
+            lr=cfg.lr, weight_decay=cfg.weight_decay)
+        '''
+        opt = torch.optim.AdamW(
+            params=[{"params": backbone.parameters()}],
             lr=cfg.lr, weight_decay=cfg.weight_decay)
     else:
         raise
@@ -193,7 +203,7 @@ def main(args):
         start_epoch = dict_checkpoint["epoch"]
         global_step = dict_checkpoint["global_step"]
         backbone.module.load_state_dict(dict_checkpoint["state_dict_backbone"])
-        module_partial_fc.load_state_dict(dict_checkpoint["state_dict_softmax_fc"])
+        # module_partial_fc.load_state_dict(dict_checkpoint["state_dict_softmax_fc"])
         opt.load_state_dict(dict_checkpoint["state_optimizer"])
         lr_scheduler.load_state_dict(dict_checkpoint["state_lr_scheduler"])
         del dict_checkpoint
@@ -222,7 +232,6 @@ def main(args):
 
     reconst_loss_am = AverageMeter()
     class_loss_am = AverageMeter()
-    total_loss_am = AverageMeter()
     amp = torch.cuda.amp.grad_scaler.GradScaler(growth_interval=100)
 
     patience = 30
@@ -232,23 +241,20 @@ def main(args):
     for epoch in range(start_epoch, cfg.max_epoch):
         if isinstance(train_loader, DataLoader):
             train_loader.sampler.set_epoch(epoch)
-        # for _, (img, local_labels) in enumerate(train_loader):                          # original
-        for batch_idx, (img, true_pointcloud, local_labels) in enumerate(train_loader):   # Bernardo
-            backbone.train()            # Bernardo
-            module_partial_fc.train()   # Bernardo
+
+        backbone.train()              # Bernardo
+        # module_partial_fc.train()   # Bernardo
+        
+        # for _, (img, local_labels) in enumerate(train_loader):                                           # original
+        for batch_idx, (img, input_pointcloud, pc_ground_truth, local_labels) in enumerate(train_loader):   # Bernardo
 
             global_step += 1
             # loss: torch.Tensor = module_partial_fc(local_embeddings, local_labels)   # original
-            pred_pointcloud, pred_logits = backbone(img, true_pointcloud)
-            reconst_loss = chamfer_loss(true_pointcloud, pred_pointcloud)              # Bernardo
-            # class_loss, probabilities, pred_labels = module_partial_fc(pred_logits, local_labels)     # Bernardo
-            # total_loss = reconst_loss + class_loss
-            total_loss = reconst_loss
+            pred_pointcloud, pred_logits = backbone(img, input_pointcloud)
+            reconst_loss = chamfer_loss(pc_ground_truth, pred_pointcloud)              # Bernardo
 
             if cfg.fp16:
-                # amp.scale(loss_reconst).backward()
-                # amp.scale(loss_class).backward()
-                amp.scale(total_loss).backward()
+                amp.scale(reconst_loss).backward()
                 if global_step % cfg.gradient_acc == 0:
                     amp.unscale_(opt)
                     torch.nn.utils.clip_grad_norm_(backbone.parameters(), 5)
@@ -256,9 +262,7 @@ def main(args):
                     amp.update()
                     opt.zero_grad()
             else:
-                # loss_reconst.backward(retain_graph=True)
-                # loss_class.backward(retain_graph=True)
-                total_loss.backward()
+                reconst_loss.backward()
                 if global_step % cfg.gradient_acc == 0:
                     torch.nn.utils.clip_grad_norm_(backbone.parameters(), 5)
                     opt.step()
@@ -266,8 +270,6 @@ def main(args):
 
             lr_scheduler.step()
             reconst_loss_am.update(reconst_loss.item(), 1)
-            # class_loss_am.update(class_loss.item(), 1)
-            total_loss_am.update(total_loss.item(), 1)
 
             pred_labels = None
             train_evaluator.update(pred_labels, local_labels)
@@ -275,35 +277,31 @@ def main(args):
             if (epoch % 10 == 0 or epoch == cfg.max_epoch-1) and batch_idx == 0:
                 path_dir_samples = os.path.join(cfg.output, f'samples/epoch={epoch}_batch={batch_idx}/train')
                 print('Saving train samples...')
-                save_sample(path_dir_samples, img, true_pointcloud, local_labels,
+                save_sample(path_dir_samples, img, pc_ground_truth, local_labels,
                             pred_pointcloud, pred_labels)
 
         with torch.no_grad():
             if wandb_logger:
                 wandb_logger.log({
-                    # 'Loss/Step Loss': loss.item(),
-                    'Loss/Train TotalLoss': total_loss_am.avg,
-                    # 'Process/Step': global_step,
+                    'Loss/ReconstLoss': reconst_loss_am.avg,
                     'Process/Epoch': epoch
                 })
 
-            # print('Train:    train_loss:', loss_am.avg)
-            callback_logging(global_step, reconst_loss_am, class_loss_am, total_loss_am, train_evaluator,
+            callback_logging(global_step, reconst_loss_am, class_loss_am, train_evaluator,
                              epoch, cfg.fp16, lr_scheduler.get_last_lr()[0], amp)
             reconst_loss_am.reset()
-            class_loss_am.reset()
-            total_loss_am.reset()
             train_evaluator.reset()
 
             checkpoint = {
                 "epoch": epoch + 1,
                 "global_step": global_step,
                 "state_dict_backbone": backbone.module.state_dict(),
-                "state_dict_softmax_fc": module_partial_fc.state_dict(),
+                # "state_dict_softmax_fc": module_partial_fc.state_dict(),
                 "state_optimizer": opt.state_dict(),
                 "state_lr_scheduler": lr_scheduler.state_dict()
             }
-            validate(chamfer_loss, module_partial_fc, backbone, val_loader, val_evaluator,
+
+            validate(chamfer_loss, backbone, val_loader, val_evaluator,
                      global_step, epoch, summary_writer, cfg, early_stopping, checkpoint, wandb_logger, run_name)   # Bernardo
                 
         if cfg.dali:
@@ -320,55 +318,49 @@ def main(args):
 
 
 # Bernardo
-def validate(chamfer_loss, module_partial_fc, backbone, val_loader, val_evaluator,
+def validate(chamfer_loss, backbone, val_loader, val_evaluator,
              global_step, epoch, writer, cfg, early_stopping, checkpoint, wandb_logger, run_name):
     with torch.no_grad():
-        module_partial_fc.eval()
-        backbone.eval()
+        # module_partial_fc.eval()
+        # backbone.eval()
         val_evaluator.reset()
 
         val_reconst_loss_am = AverageMeter()
         val_class_loss_am = AverageMeter()
-        val_total_loss_am = AverageMeter()
-        for val_batch_idx, (val_img, val_pointcloud, val_labels) in enumerate(val_loader):
+        for val_batch_idx, (val_img, val_pointcloud, val_pc_ground_truth, val_labels) in enumerate(val_loader):
             val_pred_pointcloud, val_pred_logits = backbone(val_img, val_pointcloud)
-            val_loss_reconst = chamfer_loss(val_pointcloud, val_pred_pointcloud)
-            val_loss_class, val_probabilities, val_pred_labels = module_partial_fc(val_pred_logits, val_labels)
-            val_total_loss = val_loss_reconst + val_loss_class
-            
-            val_reconst_loss_am.update(val_loss_reconst.item(), 1)
-            val_class_loss_am.update(val_loss_class.item(), 1)
-            val_total_loss_am.update(val_total_loss.item(), 1)
+            val_loss_reconst = chamfer_loss(val_pc_ground_truth, val_pred_pointcloud)
 
+            val_reconst_loss_am.update(val_loss_reconst.item(), 1)
+
+            val_pred_labels = None
             val_evaluator.update(val_pred_labels, val_labels)
 
             if (epoch % 10 == 0 or epoch == cfg.max_epoch-1) and val_batch_idx == 0:
                 path_dir_samples = os.path.join(cfg.output, f'samples/epoch={epoch}_batch={val_batch_idx}/val')
                 print('Saving val samples...')
-                save_sample(path_dir_samples, val_img, val_pointcloud, val_labels,
+                save_sample(path_dir_samples, val_img, val_pc_ground_truth, val_labels,
                             val_pred_pointcloud, val_pred_labels)
 
         metrics = val_evaluator.evaluate()
 
-        print('Validation:    val_ReconstLoss: %.4f    val_ClassLoss: %.4f    val_TotalLoss: %.4f    val_acc: %.4f%%    val_apcer: %.4f%%    val_bpcer: %.4f%%    val_acer: %.4f%%' %
-              (val_reconst_loss_am.avg, val_class_loss_am.avg, val_total_loss_am.avg, metrics['acc'], metrics['apcer'], metrics['bpcer'], metrics['acer']))
+        print('Validation:    val_ReconstLoss: %.4f    val_ClassLoss: %.4f    val_acc: %.4f%%    val_apcer: %.4f%%    val_bpcer: %.4f%%    val_acer: %.4f%%' %
+              (val_reconst_loss_am.avg, val_class_loss_am.avg, metrics['acc'], metrics['apcer'], metrics['bpcer'], metrics['acer']))
 
         writer.add_scalar('loss/val_reconst_loss', val_reconst_loss_am.avg, epoch)
         writer.add_scalar('loss/val_class_loss', val_class_loss_am.avg, epoch)
-        writer.add_scalar('loss/val_total_loss', val_total_loss_am.avg, epoch)
         writer.add_scalar('acc/val_acc', metrics['acc'], epoch)
         writer.add_scalar('apcer/val_apcer', metrics['apcer'], epoch)
         writer.add_scalar('bpcer/val_bpcer', metrics['bpcer'], epoch)
         writer.add_scalar('acer/val_acer', metrics['acer'], epoch)
 
         smooth_loss = True
-        val_total_loss_smooth = early_stopping(val_total_loss_am.avg, smooth_loss, cfg, checkpoint, epoch, wandb_logger, run_name)
+        val_reconst_loss_smooth = early_stopping(val_reconst_loss_am.avg, smooth_loss, cfg, checkpoint, epoch, wandb_logger, run_name)
         if smooth_loss:
-            writer.add_scalar('loss/val_total_loss_smooth', val_total_loss_smooth, epoch)
+            writer.add_scalar('loss/val_reconst_loss_smooth', val_reconst_loss_smooth, epoch)
 
         val_reconst_loss_am.reset()
-        val_class_loss_am.reset()
-        val_total_loss_am.reset()
+        # val_class_loss_am.reset()
 
 
 
@@ -382,7 +374,6 @@ def save_sample(path_dir_samples, img, true_pointcloud, local_labels, pred_point
         os.makedirs(path_sample, exist_ok=True)
 
         img_rgb = np.transpose(img[i].cpu().numpy(), (1, 2, 0))  # from (3,224,224) to (224,224,3)
-        # img = ((img/255.)-0.5)/0.5
         img_rgb = (((img_rgb*0.5)+0.5)*255).astype(np.uint8)
         img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
         path_img = os.path.join(path_sample, f'img.png')

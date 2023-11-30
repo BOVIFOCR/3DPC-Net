@@ -1,6 +1,7 @@
 import sys
 import torch
 import torch.nn as nn
+import numpy as np
 
 try:
     from .iresnet import iresnet18, iresnet34, iresnet50, iresnet100, iresnet200
@@ -36,7 +37,7 @@ class _3DPCNet(nn.Module):
         # self.decoder = self.get_decoder_ConvTranspose2d(input_shape=(1, self.face_embedd_size), output_shape=(self.num_axis, self.num_output_points))
         self.decoder = self.get_decoder_Conv1x1(input_shape=(1, self.face_embedd_size), output_shape=(1, self.num_axis, self.num_output_points))
         self.classifier = self.get_classifier(self.num_output_points, self.num_axis, num_classes=2)
-        self._initialize_weights()
+        # self._initialize_weights()
 
 
     def get_decoder_Conv1x1(self, input_shape=(1, 256+(2500*3)), output_shape=(1, 3, 2500)):
@@ -120,6 +121,20 @@ class _3DPCNet(nn.Module):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 if m.bias is not None:
                     m.bias.data.zero_()
+            elif isinstance(m, nn.Conv1d):
+                # m.weight.data.fill_(1)
+                # m.weight.data.fill_(0)
+                m.weight.data.uniform_(-1, 1)
+                # m.weight.data.normal_(mean=0.0, std=1.0)
+                if m.bias is not None:
+                    m.bias.data.zero_()
+            elif isinstance(m, nn.BatchNorm1d):
+                # m.weight.data.fill_(1)
+                # m.weight.data.fill_(0)
+                m.weight.data.uniform_(-1, 1)
+                # m.weight.data.normal_(mean=0.0, std=1.0)
+                if m.bias is not None:
+                    m.bias.data.zero_()
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
@@ -129,23 +144,23 @@ class _3DPCNet(nn.Module):
                     m.bias.data.zero_()
 
 
-    def forward(self, img, true_pc):
-        def _regress_pointcloud(img, true_pc):        # input     -> x.shape = (batch, 3, 224, 224)
-            embedd = self.encoder(img)                # encoder   -> x.shape = (batch, 256)
+    def forward(self, img, pointcloud):
+        def _regress_pointcloud(img, pointcloud):                # input     -> img.shape    = (batch, 3, 224, 224)
+            embedd = self.encoder(img)                           # encoder   -> embedd.shape = (batch, 256)
             # print('embedd.size():', embedd.size())
-            # print('true_pc.size():', true_pc.size())
-            true_pc = true_pc.reshape(true_pc.size(0), true_pc.size(1)*true_pc.size(2))
-            # print('reshape - true_pc.size():', true_pc.size())
+            # print('pointcloud.size():', pointcloud.size())
+            pointcloud = pointcloud.reshape(pointcloud.size(0), pointcloud.size(1)*pointcloud.size(2))   # pointcloud.shape = (batch, 2500, 3) -> (batch, 7500)
+            # print('reshape - pointcloud.size():', pointcloud.size())
 
             embedd = torch.nn.functional.normalize(embedd)
-            true_pc = torch.nn.functional.normalize(true_pc)
-            embedd_true_pc = torch.cat((embedd, true_pc), 1)
-            # print('embedd_true_pc.size():', embedd_true_pc.size())
+            # pointcloud = torch.nn.functional.normalize(pointcloud)
+            embedd_pointcloud = torch.cat((embedd, pointcloud), 1)   # embedd_pointcloud.shape = (batch, 7756)
+            # print('embedd_pointcloud.size():', embedd_pointcloud.size())
 
-            embedd_true_pc = embedd_true_pc.unsqueeze(1)              # unsqueeze -> x.shape = (batch, 1, 7756)
-            # print('embedd_true_pc.size():', embedd_true_pc.size())
+            embedd_pointcloud = embedd_pointcloud.unsqueeze(1)   # unsqueeze -> embedd_pointcloud.shape = (batch, 1, 7756)
+            # print('embedd_pointcloud.size():', embedd_pointcloud.size())
 
-            pred_pc = self.decoder(embedd_true_pc)            # decoder   -> x.shape = (batch, 2500, 3)
+            pred_pc = self.decoder(embedd_pointcloud)            # decoder   -> pred_pc.shape = (batch, 2500, 3)
             # print('pred_pc.size():', pred_pc.size())
             # sys.exit(0)
             return pred_pc
@@ -155,16 +170,16 @@ class _3DPCNet(nn.Module):
             logits = self.classifier(x)
             return logits
 
-        def _forward(img, true_pc):
-            pred_pc = _regress_pointcloud(img, true_pc)
+        def _forward(img, pointcloud):
+            pred_pc = _regress_pointcloud(img, pointcloud)
             logits = _get_logits(pred_pc)
             return pred_pc, logits
 
         if self.fp16:
             with torch.cuda.amp.autocast(self.fp16):
-                return _forward(img, true_pc)
+                return _forward(img, pointcloud)
         else:
-            return _forward(img, true_pc)
+            return _forward(img, pointcloud)
 
 
 

@@ -223,8 +223,9 @@ class OULU_NPU_FRAMES_3D_HRN(Dataset):
 
     
     def flat_pc_axis_z(self, pc_data):
-        for i in range(pc_data.shape[0]):
-            pc_data[i, 2] = 0.  # 0=x, 1=y, 2=z
+        # for i in range(pc_data.shape[0]):
+        #     pc_data[i, 2] = 0.  # 0=x, 1=y, 2=z
+        pc_data[:, 2] = 0.
         return pc_data
 
 
@@ -266,13 +267,16 @@ class OULU_NPU_FRAMES_3D_HRN(Dataset):
         pc_data = self.normalize_pc(pc_data)
         pc_data = self.sample_points(pc_data, n=2500)
 
+        pc_ground_truth = pc_data.copy()
+
         if label == 0:
-            pc_data = self.flat_pc_axis_z(pc_data)
+            # pc_data = self.flat_pc_axis_z(pc_data)
+            pc_ground_truth = self.flat_pc_axis_z(pc_ground_truth)
         
         # save_path = f'./pointcloud_index={index}_label={label}.obj'
         # self.write_obj(save_path, pc_data)
         
-        return (rgb_data, pc_data, label)
+        return (rgb_data, pc_data, pc_ground_truth, label)
         # return (img_path, rgb_data, pc_path, pc_data, label)
 
 

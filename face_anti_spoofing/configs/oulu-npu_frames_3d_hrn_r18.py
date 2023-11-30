@@ -32,7 +32,8 @@ config.batch_size = 16   # Bernardo
 # config.batch_size = 4   # Bernardo
 
 # config.lr = 0.1
-config.lr = 0.01
+# config.lr = 0.01
+config.lr = 0.001
 
 # config.verbose = 2000  # original for 5.1M images
 config.verbose = 100     # Bernardo
