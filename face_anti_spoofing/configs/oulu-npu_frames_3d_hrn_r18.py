@@ -12,11 +12,18 @@ config.margin_list = (1.0, 0.5, 0.0)
 # config.network = "r50"   # original
 config.network = "r18"     # Bernardo
 
-config.resume = False
-config.output = None
-
 # config.embedding_size = 512  # original
 config.embedding_size = 256    # Bernardo
+
+
+# Bernardo's implementation
+config.fas_type = "no_decoder_singletask1"
+# config.fas_type = "decoder_embedd_multitask1"
+# config.fas_type = "decoder_embedd_pc_multitask1"
+
+
+config.resume = False
+config.output = None
 
 config.sample_rate = 1.0
 # config.fp16 = True       # original
