@@ -3,7 +3,7 @@ from .mobilefacenet import get_mbf
 from ._3dpcnet import _3DPCNet
 
 
-def get_model(name, **kwargs):
+def get_model(name, network, decoder_type, **kwargs):
     # resnet
     if name == "r18":
         return iresnet18(False, **kwargs)
@@ -90,8 +90,8 @@ def get_model(name, **kwargs):
             num_heads=8, drop_path_rate=0.1, norm_layer="ln", mask_ratio=0, using_checkpoint=True)
 
     elif name == "3dpcnet":
-        num_features = kwargs.get("num_features", 512)
-        return _3DPCNet('r18', num_features, **kwargs)
+        num_features = kwargs.get("num_features", 256)
+        return _3DPCNet(network, decoder_type, num_features, **kwargs)
 
     else:
         raise ValueError()

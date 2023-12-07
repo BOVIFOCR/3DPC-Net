@@ -17,9 +17,8 @@ config.embedding_size = 256    # Bernardo
 
 
 # Bernardo's implementation
-config.fas_type = "no_decoder_singletask1"
-# config.fas_type = "decoder_embedd_multitask1"
-# config.fas_type = "decoder_embedd_pc_multitask1"
+config.decoder_type = "decoder_embedd_multitask1"
+# config.decoder_type = "decoder_embedd_pc_multitask1"
 
 
 config.resume = False

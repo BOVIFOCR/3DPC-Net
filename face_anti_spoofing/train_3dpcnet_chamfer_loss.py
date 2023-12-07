@@ -132,7 +132,7 @@ def main(args):
 
     print(f'\nBuilding model \'{cfg.network}\'...')
     backbone = get_model(
-        '3dpcnet', img_size=cfg.img_size, dropout=0.0, fp16=cfg.fp16, num_features=cfg.embedding_size).cuda()
+        '3dpcnet', cfg.network, cfg.decoder_type, img_size=cfg.img_size, dropout=0.0, fp16=cfg.fp16, num_features=cfg.embedding_size).cuda()
 
     backbone = torch.nn.parallel.DistributedDataParallel(
         module=backbone, broadcast_buffers=False, device_ids=[local_rank], bucket_cap_mb=16,
