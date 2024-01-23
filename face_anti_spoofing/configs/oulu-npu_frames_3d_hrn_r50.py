@@ -23,10 +23,15 @@ config.fp16 = False        # Bernardo
 config.momentum = 0.9
 config.weight_decay = 5e-4
 
+config.batch_size = 256    # Bernardo
 # config.batch_size = 128  # original
 # config.batch_size = 64   # Bernardo
-config.batch_size = 32     # Bernardo
+# config.batch_size = 32   # Bernardo
 # config.batch_size = 16   # Bernardo
+
+config.batch_subd = 32
+# config.batch_subd = 16
+# config.batch_subd = 8
 
 # config.lr = 0.1
 config.lr = 0.05

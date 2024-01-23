@@ -103,7 +103,7 @@ def main(args):
         cfg.img_size,       # Bernardo
         'train',
         local_rank,
-        cfg.batch_size,
+        cfg.batch_subd,
         cfg.frames_per_video if hasattr(cfg, 'frames_per_video') else 1,
         cfg.dali,
         cfg.dali_aug,
@@ -124,7 +124,7 @@ def main(args):
         cfg.img_size,       # Bernardo
         'val',
         local_rank,
-        cfg.batch_size,
+        cfg.batch_subd,
         cfg.frames_per_video if hasattr(cfg, 'frames_per_video') else 1,
         cfg.dali,
         cfg.dali_aug,
@@ -146,7 +146,7 @@ def main(args):
             cfg.img_size,       # Bernardo
             'test',
             local_rank,
-            cfg.batch_size,
+            cfg.batch_subd,
             cfg.frames_per_video if hasattr(cfg, 'frames_per_video') else 1,
             cfg.dali,
             cfg.dali_aug,
@@ -204,7 +204,7 @@ def main(args):
     else:
         raise
 
-    cfg.total_batch_size = cfg.batch_size * world_size
+    cfg.total_batch_size = cfg.batch_subd * world_size
     cfg.warmup_step = cfg.num_image // cfg.total_batch_size * cfg.warmup_epoch
     cfg.total_step = cfg.num_image // cfg.total_batch_size * cfg.max_epoch
 
@@ -233,23 +233,23 @@ def main(args):
     callback_logging = CallBackEpochLogging(
         frequent=cfg.frequent,
         total_step=cfg.total_step,
-        batch_size=len(train_loader),
-        num_batches=cfg.batch_size,
+        batch_size=cfg.batch_subd,
+        num_batches=len(train_loader),
         start_step = global_step,
         writer=summary_writer
     )
 
     train_evaluator = EvaluatorLogging(num_samples=len(train_loader.dataset),
-                                       batch_size=cfg.batch_size,
+                                       batch_size=cfg.batch_subd,
                                        num_batches=len(train_loader))
     
     val_evaluator = EvaluatorLogging(num_samples=len(val_loader.dataset),
-                                     batch_size=cfg.batch_size,
+                                     batch_size=cfg.batch_subd,
                                      num_batches=len(val_loader))
     
     if args.monitor_test:
         test_evaluator = EvaluatorLogging(num_samples=len(test_loader.dataset),
-                                        batch_size=cfg.batch_size,
+                                        batch_size=cfg.batch_subd,
                                         num_batches=len(test_loader))
 
     reconst_loss_am = AverageMeter()
@@ -260,24 +260,25 @@ def main(args):
     patience = 30
     early_stopping = EarlyStopping(patience=patience, verbose=True, delta=0.01, max_epochs=cfg.max_epoch)
 
+    num_batch_subdiv = int(cfg.batch_size/cfg.batch_subd)
+
     print(f'\nStarting training...')
     for epoch in range(start_epoch, cfg.max_epoch):
         if isinstance(train_loader, DataLoader):
             train_loader.sampler.set_epoch(epoch)
+        class_loss = 0
+
         # for _, (img, local_labels) in enumerate(train_loader):                          # original
         for batch_idx, (img, true_pointcloud, local_labels) in enumerate(train_loader):   # Bernardo
-            print(f'epoch: {epoch}/{cfg.max_epoch-1} - batch_idx: {batch_idx}/{len(train_loader)-1}', end='\r')
+            print(f'epoch: {epoch}/{cfg.max_epoch-1} - batch_idx: {batch_idx}/{len(train_loader)-1} - num_batch_subdiv: {num_batch_subdiv}', end='\r')
             backbone.train()            # Bernardo
             module_partial_fc.train()   # Bernardo
 
             global_step += 1
             local_embeddings = backbone(img)
             class_loss, probabilities, pred_labels = module_partial_fc(local_embeddings, local_labels)   # original
-            # pred_pointcloud, pred_means_z, pred_labels = backbone(img)
-            # reconst_loss = chamfer_loss(true_pointcloud, pred_pointcloud)              # Bernardo
-            # class_loss, probabilities, pred_labels = module_partial_fc(pred_logits, local_labels)     # Bernardo
-            # total_loss = reconst_loss + class_loss
-
+            class_loss = class_loss / num_batch_subdiv
+            
             if cfg.fp16:
                 # amp.scale(loss_reconst).backward()
                 amp.scale(class_loss).backward()
@@ -285,17 +286,19 @@ def main(args):
                 if global_step % cfg.gradient_acc == 0:
                     amp.unscale_(opt)
                     torch.nn.utils.clip_grad_norm_(backbone.parameters(), 5)
-                    amp.step(opt)
-                    amp.update()
-                    opt.zero_grad()
+                    if batch_idx>0 and (batch_idx%num_batch_subdiv==0):
+                        amp.step(opt)
+                        amp.update()
+                        opt.zero_grad()
             else:
                 # loss_reconst.backward(retain_graph=True)
                 class_loss.backward()
                 # reconst_loss.backward()
                 if global_step % cfg.gradient_acc == 0:
                     torch.nn.utils.clip_grad_norm_(backbone.parameters(), 5)
-                    opt.step()
-                    opt.zero_grad()
+                    if batch_idx>0 and (batch_idx%num_batch_subdiv==0):
+                        opt.step()
+                        opt.zero_grad()
 
             lr_scheduler.step()
             # reconst_loss_am.update(reconst_loss.item(), 1)
@@ -367,8 +370,8 @@ def main(args):
 def validate(class_loss, backbone, module_partial_fc, val_loader, val_evaluator,
              global_step, epoch, writer, cfg, early_stopping, checkpoint, wandb_logger, run_name):
     with torch.no_grad():
-        # module_partial_fc.eval()
-        # backbone.eval()
+        module_partial_fc.eval()
+        backbone.eval()
         val_evaluator.reset()
 
         # val_reconst_loss_am = AverageMeter()
@@ -431,8 +434,8 @@ def validate(class_loss, backbone, module_partial_fc, val_loader, val_evaluator,
 def test(class_loss, backbone, module_partial_fc, test_loader, test_evaluator,
              global_step, epoch, writer, cfg, early_stopping, checkpoint, wandb_logger, run_name):
     with torch.no_grad():
-        # module_partial_fc.eval()
-        # backbone.eval()
+        module_partial_fc.eval()
+        backbone.eval()
         test_evaluator.reset()
 
         # test_reconst_loss_am = AverageMeter()
@@ -470,7 +473,7 @@ def test(class_loss, backbone, module_partial_fc, test_loader, test_evaluator,
 
         metrics = test_evaluator.evaluate()
 
-        print('Validation:    test_ClassLoss: %.4f    test_acc: %.4f%%    test_apcer: %.4f%%    test_bpcer: %.4f%%    test_acer: %.4f%%' %
+        print('Test:    test_ClassLoss: %.4f    test_acc: %.4f%%    test_apcer: %.4f%%    test_bpcer: %.4f%%    test_acer: %.4f%%' %
               (test_class_loss_am.avg, metrics['acc'], metrics['apcer'], metrics['bpcer'], metrics['acer']))
 
         # writer.add_scalar('loss/test_reconst_loss', test_reconst_loss_am.avg, epoch)
